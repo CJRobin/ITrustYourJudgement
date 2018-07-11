@@ -3,7 +3,6 @@ const Alexa = require('alexa-sdk');
 var AWS = require('aws-sdk');
 const docClient = new AWS.DynamoDB.DocumentClient({region: 'us-east-1'});
 AWS.config.update({region: 'us-east-1'});
-var ddb = new AWS.DynamoDB({apiVersion: '2012-08-10'});
 
 //Replace with your app ID (OPTIONAL).  You can find this value at the top of your skill's page on http://developer.amazon.com.
 //Make sure to enclose your value in quotes, like this: const APP_ID = 'amzn1.ask.skill.bb4045e6-b3e8-4133-b650-72923c5980f1';
@@ -16,8 +15,9 @@ var months =["January", "February", "March", "April", "May", "June", "July", "Au
 var getMonth = function(value) {
     return months[value];
 };
-    
-function GetData(month, year, department) {
+var continuedText;
+
+    function GetData(month, year, department, callback) {
     var params = {
         TableName: "LogEntries",
         IndexName: "month-index",
@@ -34,22 +34,40 @@ function GetData(month, year, department) {
         },
         ProjectionExpression: 'info'
     };
+
     docClient.query(params, function(err, data) {
         if (err) {
             console.log(err);
             return 'error';
         } 
         else {
-            return data.Items[0].info;
+            //console.log(data.Items[0].info);
+            callback(data.Items[0].info);
+            
         }
     });
+}
+
+function ParseInfo(infoText, callback) {
+    var textLength = 25;
+    if(infoText.length >= textLength) {
+        //var regex = /[a-z0-9]{1}\. [A-Z0-9]/;
+        //var findPos = regex.exec(infoText.substring(25, infoText.length));
+        //if(findPos != null) {           
+            //var endPos = findPos.index + 25;
+           // continuedText = infoText.substring(endPos+2, infoText.length);
+           // callback(infoText.substring(0, endPos+2), true);
+        //}
+    } else {
+        callback(infoText, false); 
+    }
 }
     
 const handlers = {
     
 
     'LaunchRequest': function () {
-        this.emit(':ask', 'Would you like to hear the current month\'s status report or a particular month, year, or departments?', 'I\'m sorry. I didn\'t catch that.');
+        this.emit(':ask', 'Would you like to hear the current month\'s status report, or a particular month, year, or departments?', 'I\'m sorry. I didn\'t catch that.');
     },
 
     'Update': function () {
@@ -63,34 +81,94 @@ const handlers = {
         
         if (!monthName && !year && !department){
             var currentMonth = getMonth((new Date()).getMonth());
-            this.emit(':tell', currentMonth + '\'s status report is...');
+            var self = this;
+            GetData(currentMonth, (new Date()).getFullYear(), 'general', function(info, isThereMore){
+                self.emit(':tell', 'The current status report is: ' + info);  
+                // ParseInfo(info, function(newInfo, isThereMore) {
+                //     if(isThereMore) {
+                //         self.emit(':ask', 'The current status report is: ' + newInfo + ", would you like to hear more?");
+                //     } else {
+                //         self.emit(':tell', 'The current status report is: ' + newInfo);                    
+                //     }
+                // });
+            });
+           
         }
         else if (!monthName && !year && department){
-            this.emit(':tell', 'The status report for the ' + department + ' department is...');
+            var currentMonth = getMonth((new Date()).getMonth());
+            var self = this;
+            GetData(currentMonth, (new Date()).getFullYear(), department, function(info, isThereMore){
+                self.emit(':tell', 'The current status report for the ' + department + ' department is: ' + info);
+                // ParseInfo(info, function(newInfo, isThereMore) {
+                //     if(isThereMore) {
+                //         self.emit(':ask', 'The current status report for the ' + department + ' department is: ' + newInfo + ", would you like to hear more?");
+                //     } else {
+                //         self.emit(':tell', 'The current status report for the ' + department + ' department is: ' + newInfo);                  
+                //     }
+                // });
+            });
         }
         else if (!monthName && year && !department){
-            this.emit(':tell', 'The status report for ' + year + ' is...');
+            var currentMonth = getMonth((new Date()).getMonth());
+            var self = this;
+            GetData(currentMonth, parseInt(year), 'general', function(info){
+                self.emit(':tell', 'The status report for ' + year + ' is: ' + info);
+            });
+            //doesnt work with int, only with string, check back later
         }
         else if (!monthName && year && department){
-            this.emit(':tell', 'The status report for the ' + department + ' department in ' + year + ' is...');
-        }
-        else if (monthName && !year && !department){
-             this.emit(':tell','The status report for  ' + monthName + ' is ...');
-        }
-        else if (monthName && !year && department){
-            this.emit(':tell', 'The status report for the ' + department + ' department in ' + monthName + ' is...');
-        }
-        else if(monthName && year && !department){
-             this.emit(':tell', 'The status report for ' + monthName + ' ' + year + ' is...');
-        }
-        else if(monthName && year && department){
-            var temp = 'The status report for the ' + department + ' department in ' + monthName + ' ' + year + ' is ' + GetData(monthName, year, department);
-            console.log(temp);
-            this.emit(':tell', temp);
+            var currentMonth = getMonth((new Date()).getMonth());
+            var self = this;
+            GetData(currentMonth, parseInt(year), department, function(info){
+                self.emit(':tell', 'The status report for the ' + department + ' department in ' + year + ' is: ' + info);
+            });
         }
         
+       
+        else if (monthName && !year && !department){
+            var self = this;
+            GetData(monthName, (new Date()).getFullYear(), 'general', function(info){
+                self.emit(':tell', 'The status report for ' + monthName + ' is: ' + info );
+            });
+        }
+       
+        else if (monthName && !year && department){
+            var self = this;
+            GetData(monthName, (new Date()).getFullYear(), department, function(info){
+                self.emit(':tell', 'The status report for '+ department + 'in ' + monthName + ' is: ' + info );
+            });
+        }
+
+        else if(monthName && year && !department){
+            var self = this;
+            GetData(monthName, parseInt(year), 'general', function(info){
+                self.emit(':tell', 'The general status report for '+ department + 'in ' + monthName + ' is: ' + info );
+            });
+        }
+        else if(monthName && year && department){
+            var self = this;
+            GetData(monthName, parseInt(year), department, function(info){
+                self.emit(':tell', 'The status report for the ' + department + ' department in ' + monthName + ' ' + year + ' is: ' + info);
+                // ParseInfo(info, function(newInfo, isThereMore) {
+                //     if(isThereMore) {
+                //         self.emit(':ask', 'The status report for the ' + department + ' department in ' + monthName + ' ' + year + ' is: ' + newInfo + "; would you like to hear more?");
+                
+                //     } else {
+                //         self.emit(':tell', 'The status report for the ' + department + ' department in ' + monthName + ' ' + year + ' is: ' + newInfo);                        
+                //     }
+                // });
+            });
+        }
     },
-    
+    'Continue' : function(){
+        var confirm = this.event.request.intent.slots.Yes.value;
+        if (confirm) {
+            this.emit(':tell', continuedText);
+            continuedText = '';
+        }else {
+           this.emit(':tell', 'well too bad?'); 
+        }
+    },
     'Help' : function(){
         this.emit(':tell', 'Say things like "Read April\'s status report" or Read April 2016 status report');
     },
@@ -114,9 +192,19 @@ const handlers = {
 };
 
 exports.handler = function (event, context, callback) {
-    GetData('January', 2018, 'Billing');
+    var regex = /[a-z0-9]{1}\. [A-Z0-9]/;
+    var infoText = 'Apple’s board of directors has declared a cash dividend of $0.63 per share of the Company’s common stock. The dividend is payable on February 15, 2018 to shareholders of record as of the close of business on February 12, 2018. 2018';
+    var newPos = regex.exec(infoText.substring(25, infoText.length));
+    var endPos = newPos.index + 25;
+    // continuedText = infoText.substring(endPos+1, infoText.length);
+    if(newPos != null) { 
+    console.log('THIS IS WHERE ' + infoText.substring(endPos+2, infoText.length))
+    }
     const alexa = Alexa.handler(event, context, callback);
     alexa.APP_ID = APP_ID;
     alexa.registerHandlers(handlers);
     alexa.execute();
 };
+
+
+// get data is returning undefined
